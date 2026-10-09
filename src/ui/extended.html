@@ -1,0 +1,479 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Ticket QR Worker</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/jsqr/dist/jsQR.js"></script>
+    <style>
+      /* Toggle Dark Mode button */
+      #themeToggle {
+        background-color: #666;
+        color: #fff;
+      }
+      #themeToggle:hover {
+        background-color: #444;
+      }
+      /* Scan QR button */
+      #scanQRBtn {
+        background-color: #888;
+        color: #fff;
+      }
+      #scanQRBtn:hover {
+        background-color: #666;
+      }
+      /* Export JSON button */
+      #exportBtn {
+        background-color: #0056b3; /* corporate blue accent */
+        color: #fff;
+      }
+      #exportBtn:hover {
+        background-color: #003d80; /* darker blue */
+      }
+      #ticketForm button[type="submit"] {
+        background-color: #444; /* dark gray */
+        color: #fff;
+      }
+      #ticketForm button[type="submit"]:hover {
+        background-color: #222; /* darker gray */
+      }
+      :root {
+        --bg-color: #f5f5f5;
+        --card-color: #ffffff;
+        --text-color: #333;
+      }
+      body {
+        font-family: Arial, sans-serif;
+        margin: 20px;
+        background-color: var(--bg-color);
+        color: var(--text-color);
+      }
+      .dark-mode {
+        --bg-color: #222;
+        --card-color: #333;
+        --text-color: #f5f5f5;
+      }
+      
+      .card {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        background: var(--card-color); /* monochrome compliance */
+        border: 1px solid #ccc;
+        border-radius: 8px;
+        box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);
+        padding: 15px;
+        margin-top: 20px;
+      }
+      .qrText {
+        font-weight: bold;
+        flex: 2; /* text takes more space */
+      }
+      .qrOutput {
+        flex: 1;
+        display: flex;
+        justify-content: center;
+        align-items: center;
+      }
+      .btnGroup {
+        display: flex;
+        flex-direction: column; /* buttons stacked neatly */
+        gap: 5px;
+        margin-left: 15px;
+      }
+
+      button {
+        border: none;
+        padding: 6px 10px;
+        border-radius: 4px;
+        cursor: pointer;
+        transition: 0.3s ease;
+        color: #fff;
+      }
+      .deleteBtn {
+        background-color: crimson;
+      }
+      .editBtn {
+        background-color: #007bff;
+      }
+      .saveBtn {
+        background-color: green;
+      }
+      .cancelBtn {
+        background-color: grey;
+      }
+      .downloadBtn {
+        background-color: orange;
+      }
+      .copyBtn {
+        background-color: teal;
+      }
+      #searchBar {
+        margin-top: 20px;
+        padding: 8px;
+        width: 300px;
+      }
+    </style>
+  </head>
+  <body>
+    <button id="themeToggle" aria-label="Toggle Dark Mode">
+      Toggle Dark Mode
+    </button>
+    <form id="ticketForm">
+      <div id="loader" style="display: none; color: blue; font-weight: bold">
+        Loading...
+      </div>
+      <div id="errorMsg" style="color: red; display: none"></div>
+
+      <input
+        type="text"
+        id="eventName"
+        placeholder="Event Name"
+        required
+        aria-label="Event Name"
+      />
+      <input type="date" id="eventDate" required aria-label="Event Date" />
+      <input
+        type="text"
+        id="venue"
+        placeholder="Venue"
+        required
+        aria-label="Venue"
+      />
+      <input
+        type="text"
+        id="seat"
+        placeholder="Seat Number"
+        required
+        aria-label="Seat Number"
+      />
+      <button type="submit" aria-label="Add Ticket">Add Ticket</button>
+    </form>
+    <input
+      type="text"
+      id="searchBar"
+      placeholder="Search tickets..."
+      aria-label="Search Tickets"
+    />
+    <button id="exportBtn" aria-label="Export Tickets as JSON">
+      Export JSON
+    </button>
+    <input type="file" id="importFile" aria-label="Import Tickets File" />
+    <button id="scanQRBtn" aria-label="Scan QR Code">Scan QR</button>
+    <div id="ticketList"></div>
+    <div id="qrPreview" style="display:none; border:1px solid #ccc; padding:10px; margin-top:10px;"></div>
+
+    <script>   
+    let tickets = [];
+   
+      // ✅ Sanitize input
+      function sanitizeInput(str) {
+        const temp = document.createElement("div");
+        temp.textContent = str;
+        return temp.textContent;
+      }
+      
+
+      // ✅ Empty State Handling
+      function renderTickets() {
+        const loader = document.getElementById("loader");
+        loader.style.display = "block";
+  fetch("http://localhost:3000/tickets")
+    .then(res => res.json())
+    .then(data => {
+      const list = document.getElementById("ticketList");
+      list.innerHTML = "";
+      if (data.length === 0) {
+        list.innerHTML = "<p>No tickets found.</p>";
+        return;
+      }
+      
+
+      const searchTerm = document.getElementById("searchBar").value.toLowerCase();
+      data.filter(t => t.event_name.toLowerCase().includes(searchTerm))
+          .forEach(ticket => {
+            const qrString = `QR-${ticket.id}-${ticket.event_name}-${ticket.event_date}-${ticket.venue}-${ticket.seat}`;
+            const card = document.createElement("div");
+            card.className = "card";
+            card.setAttribute("role", "group");
+            card.setAttribute("aria-label", `Ticket ${ticket.event_name}`);
+
+            const textDiv = document.createElement("div");
+            textDiv.className = "qrText";
+            textDiv.innerText = qrString;
+
+            const qrDiv = document.createElement("div");
+            qrDiv.className = "qrOutput";
+
+            const btnGroup = document.createElement("div");
+            btnGroup.className = "btnGroup";
+
+            // ✅ Delete button
+            const deleteBtn = document.createElement("button");
+            deleteBtn.className = "deleteBtn";
+            deleteBtn.innerText = "Delete";
+            deleteBtn.onclick = () => {
+              console.log("[Analytics] Ticket deleted:", ticket.id);
+              fetch(`http://localhost:3000/tickets/${ticket.id}`, { method: "DELETE" })
+                .then(() => renderTickets());
+            };
+            
+
+            // ✅ Edit button
+            const editBtn = document.createElement("button");
+            editBtn.className = "editBtn";
+            editBtn.innerText = "Edit";
+            editBtn.onclick = () => {
+              card.innerHTML = "";
+
+              const nameInput = document.createElement("input");
+              nameInput.value = ticket.event_name;
+
+              const dateInput = document.createElement("input");
+              dateInput.type = "date";
+              dateInput.value = ticket.event_date;
+
+              const venueInput = document.createElement("input");
+              venueInput.value = ticket.venue;
+
+              const seatInput = document.createElement("input");
+              seatInput.value = ticket.seat;
+              nameInput.required = true;
+              venueInput.required = true;
+              seatInput.required = true;
+
+
+              const saveBtn = document.createElement("button");
+              saveBtn.className = "saveBtn";
+              saveBtn.innerText = "Save";
+              saveBtn.onclick = () => {
+                fetch(`http://localhost:3000/tickets/${ticket.id}`, {
+                  method: "PUT",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({
+                    event_name: nameInput.value.trim(),
+                    event_date: dateInput.value,
+                    venue: venueInput.value.trim(),
+                    seat: seatInput.value.trim()
+                  })
+                }).then(() => {
+    console.log("[Analytics] Ticket edited:", ticket.id); // ✅ यहाँ लगाना है
+    renderTickets();
+  })
+  .catch(err => console.error("Error editing ticket:", err));
+};
+
+              const cancelBtn = document.createElement("button");
+              cancelBtn.className = "cancelBtn";
+              cancelBtn.innerText = "Cancel";
+              cancelBtn.onclick = () => renderTickets();
+
+              card.appendChild(nameInput);
+              card.appendChild(dateInput);
+              card.appendChild(venueInput);
+              card.appendChild(seatInput);
+              card.appendChild(saveBtn);
+              card.appendChild(cancelBtn);
+            };
+
+            // ✅ Download QR
+            const downloadBtn = document.createElement("button");
+            downloadBtn.className = "downloadBtn";
+            downloadBtn.innerText = "Download QR";
+            downloadBtn.onclick = () => {
+              const canvas = qrDiv.querySelector("canvas");
+              if (!canvas) {
+    alert("QR not ready yet");
+    return;
+  }
+                const link = document.createElement("a");
+                link.href = canvas.toDataURL("image/png");
+                link.download = `ticket-${ticket.id}.png`;
+                link.click();
+            };
+
+            // ✅ Copy QR
+            const copyBtn = document.createElement("button");
+            copyBtn.className = "copyBtn";
+            copyBtn.innerText = "Copy Text";
+            copyBtn.onclick = () => {
+              navigator.clipboard.writeText(qrString)
+              .then(() => {
+      alert("QR text copied!");
+      console.log("[Analytics] QR copied:", qrString); // ✅ यहाँ लगाना है
+    })
+    .catch(err => console.error("Error copying QR:", err));
+            };
+
+            btnGroup.appendChild(editBtn);
+            btnGroup.appendChild(deleteBtn);
+            btnGroup.appendChild(downloadBtn);
+            btnGroup.appendChild(copyBtn);
+
+            card.appendChild(textDiv);
+            card.appendChild(qrDiv);
+            card.appendChild(btnGroup);
+            list.appendChild(card);
+
+            new QRCode(qrDiv, { text: qrString, width: 120, height: 120 });
+          });
+    });
+}
+
+      // ✅ Invalid Input Handling
+      document.getElementById("ticketForm").addEventListener("submit", (e) => {
+        e.preventDefault();
+        const name = sanitizeInput(
+          document.getElementById("eventName").value.trim(),
+        );
+        const date = document.getElementById("eventDate").value;
+        const venue = sanitizeInput(
+          document.getElementById("venue").value.trim(),
+        );
+        const seat = sanitizeInput(
+          document.getElementById("seat").value.trim(),
+        );
+        if (!name || !date || !venue || !seat) {
+          const errorBox = document.getElementById("errorMsg");
+          errorBox.textContent = "All fields are required!";
+          errorBox.style.display = "block";
+          [
+            document.getElementById("eventName"),
+            document.getElementById("eventDate"),
+            document.getElementById("venue"),
+            document.getElementById("seat"),
+          ].forEach((el) => {
+            if (!el.value.trim()) {
+              el.style.border = "2px solid red";
+            } else {
+              el.style.border = ""; // reset if filled
+            }
+          });
+          return;
+        }
+        document.getElementById("errorMsg").textContent = "";
+        document.getElementById("errorMsg").style.display = "none";
+        fetch("http://localhost:3000/tickets", {
+  method: "POST",
+  headers: { "Content-Type": "application/json" },
+  body: JSON.stringify({
+    user_id: 1,
+    event_name: name,
+    event_date: date,
+    venue,
+    seat
+  })
+})
+.then(res => res.json())
+.then(data => {
+  console.log("Ticket added:", data);
+  console.log("[Analytics] Ticket added:", data.id);
+  renderTickets(); // refresh list from DB
+})
+.catch(err => console.error("Error:", err))
+.finally(() => {
+      loader.style.display = "none"; // ✅ Loader छुपाओ
+    });
+  });
+      
+      // ✅ Export JSON (duplicate हटाया + telemetry सही जगह)
+document.getElementById("exportBtn").addEventListener("click", () => {
+  const loader = document.getElementById("loader");
+  loader.style.display = "block";
+  setTimeout(() => {
+    fetch("http://localhost:3000/tickets")
+      .then(res => res.json())
+      .then(data => {
+        const blob = new Blob([JSON.stringify(data)], { type: "application/json" });
+        const link = document.createElement("a");
+        link.href = URL.createObjectURL(blob);
+        link.download = "tickets.json";
+        link.click();
+        loader.style.display = "none";
+        console.log("[Analytics] User exported tickets"); // ✅ telemetry यहाँ
+      })
+      .catch(err => console.error("Error exporting:", err));
+  }, 1000);
+});
+
+// ✅ Import File (idsToDelete हटाया, सही logic डाला)
+document.getElementById("importFile").addEventListener("change", (e) => {
+  const loader = document.getElementById("loader");
+  loader.style.display = "block";
+  const file = e.target.files[0];
+  const reader = new FileReader();
+  reader.onload = () => {
+    const importedTickets = JSON.parse(reader.result);
+    importedTickets.forEach(ticket => {
+      fetch("http://localhost:3000/tickets", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(ticket)
+      }).then(() => renderTickets());
+    });
+    loader.style.display = "none";
+    console.log("[Analytics] Tickets imported:", importedTickets.length);
+  };
+  reader.readAsText(file);
+});
+
+// ✅ Search Bar (ठीक है)
+document.getElementById("searchBar").addEventListener("input", renderTickets);
+
+// ✅ Theme Toggle (ठीक है)
+document.getElementById("themeToggle").addEventListener("click", () => {
+  document.body.classList.toggle("dark-mode");
+});
+
+// ✅ Scan QR (गलत if(code) हटाया, jsQR वाला रखा)
+document.getElementById("scanQRBtn").addEventListener("click", async () => {
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({
+      video: { facingMode: "environment" },
+    });
+    const video = document.createElement("video");
+    video.setAttribute("playsinline", true);
+    video.srcObject = stream;
+    video.play();
+
+    const canvas = document.createElement("canvas");
+    const ctx = canvas.getContext("2d");
+
+    const scan = () => {
+      if (video.readyState === video.HAVE_ENOUGH_DATA) {
+        canvas.width = video.videoWidth;
+        canvas.height = video.videoHeight;
+        ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+
+        const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+        const code = jsQR(imageData.data, canvas.width, canvas.height);
+        if (code) {
+          alert("QR Code detected: " + code.data);
+          console.log("[Analytics] QR scanned:", code.data);
+          stream.getTracks().forEach(track => track.stop());
+        }
+      }
+      requestAnimationFrame(scan);
+    };
+    requestAnimationFrame(scan);
+  } catch (err) {
+    console.error("Error scanning QR:", err);
+  }
+});
+
+  function loadTickets() {
+    fetch("http://localhost:3000/tickets")
+      .then(res => res.json())
+      .then(data => {
+        const list = document.getElementById("ticketList");
+        list.innerHTML = "";
+        data.forEach(ticket => {
+          const li = document.createElement("li");
+          li.textContent = `${ticket.event_name} | ${ticket.event_date} | ${ticket.venue} | Seat: ${ticket.seat}`;
+          list.appendChild(li);
+        });
+      });
+  }
+    </script>
+  </body>
+</html>
